@@ -1,17 +1,15 @@
 services:
   - type: web
     name: resumeforge
-    runtime: node
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
     envVars:
-      - key: NODE_VERSION
-        value: 20
       - key: NODE_ENV
         value: production
-      - key: NPM_CONFIG_PRODUCTION
-        value: false
+      - key: PORT
+        value: 10000
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET

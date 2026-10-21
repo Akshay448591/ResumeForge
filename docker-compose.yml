@@ -1,0 +1,52 @@
+services:
+  # Local MongoDB database
+  mongo:
+    image: mongo:7-jammy
+    container_name: resumeforge-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Express Backend API + Playwright PDF renderer
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: resumeforge-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongo:27017/resumeforge
+      - JWT_SECRET=local-development-secret-key-32chars
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=gemini-3.8-flash
+      - PRINT_BASE_URL=http://client:80
+      - CHROMIUM_ARGS=--no-sandbox --disable-setuid-sandbox
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # Vite React Frontend served via Nginx with API reverse proxy
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: resumeforge-client
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:
