@@ -22,6 +22,9 @@
     "pdf:setup": "npm run pdf:setup -w server",
     "test": "npm run build -w client && npm run test -w server"
   },
+  "dependencies": {
+    "typescript": "^5.6.3"
+  },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
     "concurrently": "^9.0.1",

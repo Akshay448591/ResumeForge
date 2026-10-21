@@ -88,10 +88,11 @@ ResumeForge can be hosted on [Render](https://render.com) using a single Web Ser
 
 1. Create a new **Web Service** on Render connected to this repository.
 2. Set Runtime to **Node**.
-3. Set Build Command: `npm install && npm run build`
+3. Set Build Command: `npm install --include=dev && npm run build`
 4. Set Start Command: `npm start`
 5. Under **Environment Variables**, add:
    - `NODE_ENV`: `production`
+   - `NPM_CONFIG_PRODUCTION`: `false`
    - `MONGODB_URI`: `<your MongoDB Atlas connection string>`
    - `JWT_SECRET`: `<a secure random string with 16+ characters>`
    - `GEMINI_API_KEY`: `<optional Gemini API key>`
