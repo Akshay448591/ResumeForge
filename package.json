@@ -1,0 +1,35 @@
+{
+  "name": "resumeforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ResumeForge - resume builder (MVP: dashboard, editor, live preview)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
+    "pdf:setup": "npm run pdf:setup -w server",
+    "test": "npm run build -w client && npm run test -w server"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "concurrently": "^9.0.1",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.11.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.11.0"
+  }
+}

@@ -1,0 +1,26 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Provider } from 'react-redux';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+import '@fontsource-variable/instrument-sans';
+import '@fontsource-variable/source-serif-4';
+import './index.css';
+import { store } from './store';
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
+});
+
+createRoot(document.getElementById('root') as HTMLElement).render(
+  <StrictMode>
+    <Provider store={store}>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </Provider>
+  </StrictMode>,
+);
