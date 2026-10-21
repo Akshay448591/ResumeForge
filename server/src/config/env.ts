@@ -24,3 +24,12 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (
+  env.NODE_ENV === 'production' &&
+  env.JWT_SECRET === 'resumeforge-default-production-jwt-secret-min16-key'
+) {
+  console.warn(
+    '⚠️  [SECURITY WARNING] Using the default JWT_SECRET in production! Please define a strong, random JWT_SECRET in your environment settings.',
+  );
+}

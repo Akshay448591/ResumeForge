@@ -8,14 +8,23 @@ import { clearAuthCookie, requireAuth, setAuthCookie } from '../middleware/auth.
 
 export const authRouter = Router();
 
-const limiter = rateLimit({
+const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { message: 'Too many authentication attempts. Please try again in 15 minutes.' },
 });
 
-const email = z.string().trim().toLowerCase().email('Enter a valid email address');
+const passwordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many password update attempts. Please try again later.' },
+});
+
+const email = z.string().trim().toLowerCase().max(254).email('Enter a valid email address');
 const password = z.string().min(8, 'Use at least 8 characters').max(128);
 const name = z.string().trim().min(1, 'Enter your name').max(100);
 
@@ -27,7 +36,7 @@ const publicUser = (u: { _id: unknown; name: string; email: string }) => ({
 
 authRouter.post(
   '/register',
-  limiter,
+  authLimiter,
   wrap(async (req, res) => {
     const body = z.object({ name, email, password }).parse(req.body);
     if (await User.exists({ email: body.email })) {
@@ -47,7 +56,7 @@ authRouter.post(
 
 authRouter.post(
   '/login',
-  limiter,
+  authLimiter,
   wrap(async (req, res) => {
     const body = z.object({ email, password: z.string().min(1) }).parse(req.body);
     const user = await User.findOne({ email: body.email });
@@ -87,6 +96,7 @@ authRouter.patch(
 authRouter.post(
   '/me/password',
   requireAuth,
+  passwordLimiter,
   wrap(async (req, res) => {
     const body = z
       .object({ currentPassword: z.string().min(1), newPassword: password })

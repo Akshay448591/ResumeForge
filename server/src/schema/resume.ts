@@ -35,6 +35,18 @@ export const SECTION_TYPES = [
 
 const id = z.string().min(1).max(64);
 const text = (max: number) => z.string().max(max);
+const safeUrl = (max = 300) =>
+  z
+    .string()
+    .max(max)
+    .refine(
+      (v) => {
+        const trimmed = v.trim();
+        if (!trimmed) return true;
+        return !/^(javascript|vbscript|data|file|blob):/i.test(trimmed);
+      },
+      { message: 'URL protocol scheme is not allowed.' },
+    );
 
 export const contentSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -44,7 +56,7 @@ export const contentSchema = z.object({
     email: text(200),
     phone: text(40),
     location: text(120),
-    links: z.array(z.object({ id, label: text(60), url: text(300), visible: z.boolean() })).max(10),
+    links: z.array(z.object({ id, label: text(60), url: safeUrl(300), visible: z.boolean() })).max(10),
     show: z.object({ email: z.boolean(), phone: z.boolean(), location: z.boolean() }),
   }),
   summary: text(1500),
@@ -83,14 +95,14 @@ export const contentSchema = z.object({
       z.object({
         id,
         name: text(120),
-        link: text(300),
+        link: safeUrl(300),
         technologies: z.array(text(40)).max(20),
         description: text(1000),
       }),
     )
     .max(20),
   certifications: z
-    .array(z.object({ id, name: text(120), issuer: text(120), date: text(10), link: text(300) }))
+    .array(z.object({ id, name: text(120), issuer: text(120), date: text(10), link: safeUrl(300) }))
     .max(30),
   awards: z
     .array(

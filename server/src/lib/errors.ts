@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from 'express';
 import { ZodError } from 'zod';
+import { maskSensitive } from './security.js';
 
 export class AppError extends Error {
   constructor(
@@ -38,13 +39,15 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   }
   const type = (err as { type?: string } | null)?.type;
   if (type === 'entity.too.large') {
-    res.status(413).json({ message: 'That file is too large. The limit is 3 MB.' });
+    res.status(413).json({ message: 'Request payload is too large.' });
     return;
   }
   if (type === 'entity.parse.failed') {
     res.status(400).json({ message: 'The request could not be read.' });
     return;
   }
-  console.error(err);
+  if (process.env.NODE_ENV !== 'test') {
+    console.error('Unhandled server error:', maskSensitive(err instanceof Error ? err.stack || err.message : err));
+  }
   res.status(500).json({ message: 'Something went wrong on our side. Please try again.' });
 };

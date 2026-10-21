@@ -1,4 +1,5 @@
 import mammoth from 'mammoth';
+import { AppError } from './errors.js';
 import { emptyContent, newId, type ResumeContent } from '../schema/resume.js';
 
 interface Block {
@@ -332,7 +333,13 @@ function projectsFrom(blocks: Block[]) {
 export async function importDocx(buffer: Buffer): Promise<ImportResult> {
   const result = await mammoth.convertToHtml({ buffer });
   const html = result.value;
+  if (html.length > 500_000) {
+    throw new AppError(413, 'The document exceeds maximum allowable parsing size. Please upload a standard resume.');
+  }
   const blocks = blocksFromHtml(html);
+  if (blocks.length > 2_000) {
+    throw new AppError(413, 'The document contains too many elements. Please upload a standard resume.');
+  }
   const warnings: string[] = [];
   if (!blocks.length) throw new Error('empty');
   if (/<table/i.test(html)) {

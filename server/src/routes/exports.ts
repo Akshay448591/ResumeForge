@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { AppError, wrap } from '../lib/errors.js';
 import { assertValidId, findOwnedResume } from '../lib/owned.js';
 import { enqueueExport } from '../lib/pdf/queue.js';
+import { sanitizeFilename } from '../lib/security.js';
 import { ExportJob, type IExportJob } from '../models/ExportJob.js';
 import { normalizeTemplateId } from '../schema/resume.js';
 
@@ -36,24 +37,13 @@ const meta = (j: IExportJob & { _id: unknown }) => ({
 
 /** A safe file name: no path or control characters, always ending in .pdf. */
 function safeName(raw: string | undefined, fallback: string) {
-  const base = (raw ?? '')
-    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '')
-    .replace(/\.pdf$/i, '')
-    .trim()
-    .slice(0, 100);
-  const name =
-    base ||
-    fallback
-      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '')
-      .trim()
-      .slice(0, 100) ||
-    'Resume';
-  return `${name}.pdf`;
+  return sanitizeFilename(raw, fallback);
 }
 
 function contentDisposition(name: string) {
-  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  // Strip control characters, quotes, and CRLF (HTTP response splitting prevention)
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\r\n\\]/g, '');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name.replace(/[\r\n]/g, ''))}`;
 }
 
 /**

@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
 import { errorHandler } from './lib/errors.js';
 import { authRouter } from './routes/auth.js';
@@ -13,18 +14,58 @@ import { resumesRouter } from './routes/resumes.js';
 export function createApp() {
   const app = express();
 
+  // Hide server identification
+  app.disable('x-powered-by');
+
+  // Hardened security headers
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
-          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-          'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-          'font-src': ["'self'", 'https://fonts.gstatic.com'],
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          frameAncestors: ["'none'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
         },
       },
+      frameguard: { action: 'deny' },
+      hsts:
+        env.NODE_ENV === 'production'
+          ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+          : false,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      crossOriginEmbedderPolicy: false,
     }),
   );
-  app.use(express.json({ limit: '1mb' }));
+
+  // Restrict unused browser features
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=()',
+    );
+    next();
+  });
+
+  // Global rate limiter for API endpoints to prevent DoS flooding
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: env.NODE_ENV === 'test' ? 5000 : 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Too many requests from this IP. Please try again later.' },
+  });
+  app.use('/api', apiLimiter);
+
+  // Enforce strict request body size limits
+  app.use(express.json({ limit: '500kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   app.use(cookieParser());
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));

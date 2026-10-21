@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { AppError, wrap } from '../lib/errors.js';
 import { importDocx } from '../lib/docxImport.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -9,12 +10,21 @@ export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordproc
 export const importRouter = Router();
 importRouter.use(requireAuth);
 
+const importLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 25,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'You’re uploading documents too quickly. Please wait a moment and try again.' },
+});
+
 /**
  * Parses a .docx into resume sections and returns it for review. Nothing is saved here:
  * the client shows the result and creates the resume only after the person confirms.
  */
 importRouter.post(
   '/docx',
+  importLimiter,
   express.raw({ type: DOCX_MIME, limit: '3mb' }),
   wrap(async (req, res) => {
     const file = req.body as unknown;
@@ -33,7 +43,8 @@ importRouter.post(
     }
     try {
       res.json(await importDocx(file));
-    } catch {
+    } catch (err) {
+      if (err instanceof AppError) throw err;
       throw new AppError(
         422,
         'We couldn’t read any text from this document. It may be a scan, password-protected or damaged. Try exporting it again from Word, or start from a blank resume.',
