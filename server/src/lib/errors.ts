@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from 'express';
 import { ZodError } from 'zod';
-import { maskSensitive } from './security.js';
+import { logger, metrics } from './observability/index.js';
+import { redactString } from './observability/redact.js';
 
 export class AppError extends Error {
   constructor(
@@ -23,7 +24,11 @@ export const wrap =
 
 // Express identifies error handlers by their 4-argument signature, so `_next` must stay.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+  const requestId = req.id;
+  const route = req.originalUrl || req.url;
+  const method = req.method;
+
   if (err instanceof ZodError) {
     res.status(400).json({
       message: 'Please check the highlighted fields.',
@@ -32,6 +37,16 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
   if (err instanceof AppError) {
+    if (err.status >= 500) {
+      metrics.recordError({
+        requestId,
+        route,
+        method,
+        statusCode: err.status,
+        message: err.message,
+        category: (err.extra?.code as string) || 'APP_ERROR',
+      });
+    }
     res
       .status(err.status)
       .json({ message: err.message, fieldErrors: err.fieldErrors, ...err.extra });
@@ -46,8 +61,27 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(400).json({ message: 'The request could not be read.' });
     return;
   }
-  if (process.env.NODE_ENV !== 'test') {
-    console.error('Unhandled server error:', maskSensitive(err instanceof Error ? err.stack || err.message : err));
-  }
+
+  // Unhandled internal server error
+  const rawMessage = err instanceof Error ? err.stack || err.message : String(err);
+  const sanitizedMessage = redactString(rawMessage);
+
+  metrics.recordError({
+    requestId,
+    route,
+    method,
+    statusCode: 500,
+    message: err instanceof Error ? err.message : String(err),
+    category: 'UNHANDLED_EXCEPTION',
+  });
+
+  logger.error('Unhandled server error', {
+    requestId,
+    route,
+    method,
+    error: sanitizedMessage,
+  });
+
   res.status(500).json({ message: 'Something went wrong on our side. Please try again.' });
 };
+

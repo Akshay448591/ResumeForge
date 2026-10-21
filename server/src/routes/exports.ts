@@ -4,6 +4,7 @@ import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { AppError, wrap } from '../lib/errors.js';
+import { logger, updateLogContext } from '../lib/observability/index.js';
 import { assertValidId, findOwnedResume } from '../lib/owned.js';
 import { enqueueExport } from '../lib/pdf/queue.js';
 import { sanitizeFilename } from '../lib/security.js';
@@ -93,16 +94,21 @@ exportsRouter.post(
       snapshot: { title: resume.title, templateId, style, content: resume.content },
       expiresAt: new Date(Date.now() + JOB_LIFETIME_MS),
     });
-    enqueueExport(String(job._id));
+    const jobIdStr = String(job._id);
+    updateLogContext({ exportJobId: jobIdStr });
+    logger.info('Queued new PDF export job', { exportJobId: jobIdStr, resumeId: String(resume._id) });
+    enqueueExport(jobIdStr);
     res.status(202).json(meta(job.toObject()));
   }),
 );
 
 async function findJob(req: Request, select = '') {
   const resume = await findOwnedResume(req.userId, param(req, 'id'));
-  assertValidId(param(req, 'jobId'), 'Export');
+  const jobId = param(req, 'jobId');
+  assertValidId(jobId, 'Export');
+  updateLogContext({ exportJobId: jobId });
   const job = await ExportJob.findOne({
-    _id: param(req, 'jobId'),
+    _id: jobId,
     resumeId: resume._id,
     userId: req.userId,
   }).select(select);

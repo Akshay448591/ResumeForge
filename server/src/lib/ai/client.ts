@@ -3,6 +3,7 @@ import { ZodError, type z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { env } from '../../config/env.js';
 import { AppError } from '../errors.js';
+import { logger, metrics } from '../observability/index.js';
 
 let client: GoogleGenAI | null = null;
 
@@ -14,6 +15,7 @@ export const aiModel = () => env.GEMINI_MODEL;
 function getClient(): GoogleGenAI {
   const apiKey = getApiKey();
   if (!apiKey) {
+    metrics.recordAiFailure('AI_NOT_CONFIGURED', 0);
     throw new AppError(
       503,
       'AI features aren’t set up yet. Add GEMINI_API_KEY to server/.env and restart the server.',
@@ -77,6 +79,10 @@ export async function callTool<S extends z.ZodTypeAny>(opts: {
   schema: S;
   maxTokens?: number;
 }): Promise<z.infer<S>> {
+  metrics.recordAiStart();
+  const startTime = performance.now();
+  logger.info('Starting AI tool execution', { tool: opts.name });
+
   const gemini = getClient();
   const inputSchema = zodToJsonSchema(opts.schema, { $refStrategy: 'none' }) as Record<
     string,
@@ -100,10 +106,21 @@ export async function callTool<S extends z.ZodTypeAny>(opts: {
       const text = res.text?.trim();
       if (!text) throw new ZodError([]);
       const raw = JSON.parse(text);
-      return opts.schema.parse(raw);
+      const parsed = opts.schema.parse(raw);
+
+      const durationMs = Math.max(1, Math.round(performance.now() - startTime));
+      metrics.recordAiSuccess(durationMs);
+      logger.info('AI tool execution succeeded', { tool: opts.name, durationMs, attempt });
+      return parsed;
     } catch (e) {
-      if ((e instanceof ZodError || e instanceof SyntaxError) && attempt < 1) continue; // malformed output: try once more
+      if ((e instanceof ZodError || e instanceof SyntaxError) && attempt < 1) {
+        logger.warn('AI tool output malformed, retrying attempt', { tool: opts.name, attempt });
+        continue; // malformed output: try once more
+      }
+      const durationMs = Math.max(1, Math.round(performance.now() - startTime));
       if (e instanceof ZodError || e instanceof SyntaxError) {
+        metrics.recordAiFailure('AI_FORMAT', durationMs);
+        logger.error('AI tool output format invalid', { tool: opts.name, durationMs });
         throw new AppError(
           502,
           'The AI service returned something we couldn’t read. Please try again.',
@@ -111,7 +128,16 @@ export async function callTool<S extends z.ZodTypeAny>(opts: {
           { code: 'AI_FORMAT' },
         );
       }
-      throw mapError(e);
+      const mapped = mapError(e);
+      const code = (mapped.extra?.code as string | undefined) || 'AI_ERROR';
+      metrics.recordAiFailure(code, durationMs);
+      logger.error('AI tool execution failed', {
+        tool: opts.name,
+        code,
+        durationMs,
+        error: mapped.message,
+      });
+      throw mapped;
     }
   }
 }

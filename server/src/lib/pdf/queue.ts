@@ -1,11 +1,15 @@
 import { env } from '../../config/env.js';
 import { ExportJob } from '../../models/ExportJob.js';
+import { logger, metrics, withLogContext } from '../observability/index.js';
 import { renderPdf } from './render.js';
 
 /** How many PDFs may render at the same time. Each one is a browser tab, so keep this small. */
 const CONCURRENCY = 2;
 const waiting: string[] = [];
 let active = 0;
+
+export const getPdfQueueLength = () => waiting.length;
+export const getPdfActiveCount = () => active;
 
 export const printBaseUrl = () =>
   env.PRINT_BASE_URL ??
@@ -27,26 +31,50 @@ export function friendlyError(err: unknown): string {
 }
 
 async function run(id: string) {
-  const job = await ExportJob.findOneAndUpdate(
-    { _id: id, status: 'queued' },
-    { status: 'processing' },
-    { new: true },
-  ).select('+snapshot');
-  if (!job?.snapshot) return;
-  try {
-    const { pdf, pages } = await renderPdf(job.snapshot, printBaseUrl());
-    job.status = 'done';
-    job.pdf = pdf;
-    job.pages = pages;
-    job.bytes = pdf.length;
-    job.error = '';
-  } catch (err) {
-    console.error('PDF export failed:', err);
-    job.status = 'failed';
-    job.error = friendlyError(err);
-  }
-  job.snapshot = undefined; // no need to keep the resume copy once rendering is over
-  await job.save();
+  await withLogContext({ exportJobId: id }, async () => {
+    metrics.recordPdfStart();
+    const startTime = performance.now();
+
+    const job = await ExportJob.findOneAndUpdate(
+      { _id: id, status: 'queued' },
+      { status: 'processing' },
+      { new: true },
+    ).select('+snapshot');
+    if (!job?.snapshot) return;
+
+    logger.info('Starting PDF export render', { exportJobId: id, pageSize: job.pageSize });
+
+    try {
+      const { pdf, pages } = await renderPdf(job.snapshot, printBaseUrl());
+      const durationMs = Math.max(1, Math.round(performance.now() - startTime));
+      job.status = 'done';
+      job.pdf = pdf;
+      job.pages = pages;
+      job.bytes = pdf.length;
+      job.error = '';
+
+      metrics.recordPdfSuccess(durationMs);
+      logger.info('PDF export render completed', {
+        exportJobId: id,
+        pages,
+        bytes: pdf.length,
+        durationMs,
+      });
+    } catch (err) {
+      const durationMs = Math.max(1, Math.round(performance.now() - startTime));
+      const category = metrics.recordPdfFailure(err, durationMs);
+      logger.error('PDF export failed', {
+        exportJobId: id,
+        category,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs,
+      });
+      job.status = 'failed';
+      job.error = friendlyError(err);
+    }
+    job.snapshot = undefined; // no need to keep the resume copy once rendering is over
+    await job.save();
+  });
 }
 
 function pump() {
@@ -54,7 +82,7 @@ function pump() {
     const id = waiting.shift() as string;
     active++;
     void run(id)
-      .catch((e) => console.error('Export job error:', e))
+      .catch((e) => logger.error('Export job unhandled worker error', { exportJobId: id, error: e instanceof Error ? e.message : String(e) }))
       .finally(() => {
         active--;
         pump();
